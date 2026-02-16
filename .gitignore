@@ -1,0 +1,16 @@
+# Binaries
+silo
+breakout 
+breakout-d
+*.o
+*.a
+
+# Container Artifacts
+rootfs/
+.pivot_old/
+*.tar.gz
+
+# IDE/OS Junk
+.DS_Store
+.vscode/
+EOF
