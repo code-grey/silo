@@ -32,6 +32,8 @@ For v0.1-alpha you must create this and download the alpine image (tmp folder so
 ```
 mkdir -p /tmp/silo-container/rootfs
 
+cd /tmp/silo-container
+
 curl -o alpine.tar.gz https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-minirootfs-3.19.0-x86_64.tar.gz
 
 tar -xvf alpine.tar.gz -C rootfs
