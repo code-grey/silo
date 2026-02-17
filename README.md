@@ -25,3 +25,15 @@ go build -o silo main.go
 # Run a shell inside the container (Requires Root)
 sudo ./silo run /bin/sh
 ```
+
+
+## Instruction
+For v0.1-alpha you must create this and download the alpine image (tmp folder so that these things are flushed away on reboot)
+```
+mkdir -p /tmp/silo-container/rootfs
+
+curl -o alpine.tar.gz https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-minirootfs-3.19.0-x86_64.tar.gz
+
+tar -xvf alpine.tar.gz -C rootfs
+
+```
