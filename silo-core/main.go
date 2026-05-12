@@ -94,14 +94,27 @@ func child() {
 		panic(fmt.Sprintf("mount proc failed: %v", err))
 	}
 
-	cmd := exec.Command(os.Args[2], os.Args[3:]...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("Error running child payload - %s\n", err)
+	path, err := exec.LookPath(os.Args[2])
+	if err != nil {
+		fmt.Printf("Error finding binary: %v\n", err)
 		os.Exit(1)
 	}
-	syscall.Unmount("/proc", 0)
+
+	if err := syscall.Exec(path, os.Args[2:], os.Environ()); err != nil {
+		fmt.Printf("Error running syscall.Exec - %s\n", err)
+		os.Exit(1)
+	}
+
+	//following code allowed for PID 1 for the go process instead of the shell inside the container
+	// cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	// cmd.Stdin = os.Stdin
+	// cmd.Stdout = os.Stdout
+	// cmd.Stderr = os.Stderr
+	//
+	// if err := cmd.Run(); err != nil {
+	// fmt.Printf("Error running child payload - %s\n", err)
+	// os.Exit(1)
+	// }
+	// syscall.Unmount("/proc", 0)
+
 }
