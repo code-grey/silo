@@ -7,9 +7,10 @@ This document outlines the development milestones for Silo, tracking our progres
 - [x] **Basic Namespaces:** Implement foundational Linux Namespaces (`CLONE_NEWPID`, `CLONE_NEWNS`, `CLONE_NEWUTS`).
 - [x] **PID 1 Execution:** Using `syscall.Exec` to ensure the container payload runs as PID 1 inside the container (instead of the Go process).
 
-## v0.2 - Security & Resources (In Progress)
+## v0.2 - Security & Resources (Completed)
 - [x] **pivot_root Migration:** Move from `chroot` to `pivot_root` to securely swap the root filesystem and prevent jailbreaks.
-- [ ] **Resource Control (Cgroups v2):** Implement memory and CPU constraints using the Cgroups v2 `/sys/fs/cgroup` interface.
+- [x] **Resource Control (Cgroups v2):** Implement memory and CPU constraints using the Cgroups v2 `/sys/fs/cgroup` interface.
+- [x] **Catastrophe Post-Mortem:** Extract kernel cgroup events (`memory.events`, `memory.peak`, `pids.events`) on crash to diagnose OOM kills and fork-bombs.
 
 ## v0.3 - Image Layers (Planned)
 - [ ] **OverlayFS:** Implement OverlayFS to separate a read-only base image (`lowerdir`) from the container's writable layer (`upperdir`). This prevents destruction of the base rootfs and allows multiple containers to share the same base image seamlessly.

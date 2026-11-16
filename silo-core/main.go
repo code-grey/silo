@@ -22,7 +22,7 @@ func main() {
 		if len(os.Args) < 3 {
 			usage()
 		}
-		run()
+		os.Exit(run())
 	case "child":
 		child()
 	default:

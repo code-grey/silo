@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func run() {
+func run() int {
 	fmt.Printf("Running %v \n", os.Args[2:])
 	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, os.Args[2:]...)...)
 
@@ -23,9 +23,17 @@ func run() {
 
 	if err := cmd.Start(); err != nil {
 		fmt.Printf("Error running the run command - %s\n", err)
-		os.Exit(1)
+		return 1
 	}
 	fmt.Printf("Silo: Container booted successfully (Host PID: %d)\n", cmd.Process.Pid)
+
+	cleanupCgroup, err := setupCgroup(cmd.Process.Pid)
+	if err != nil {
+		fmt.Printf("Silo Error: Failed to setup cgroups: %v\n", err)
+		_ = cmd.Process.Kill()
+		return 1
+	}
+	defer cleanupCgroup()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -68,9 +76,11 @@ func run() {
 	}
 
 	if cmdErr != nil {
+		inspectCgroup(cmd.Process.Pid)
 		if exitError, ok := cmdErr.(*exec.ExitError); ok {
-			os.Exit(exitError.ExitCode())
+			return exitError.ExitCode()
 		}
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
