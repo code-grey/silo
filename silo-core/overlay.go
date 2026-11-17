@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -42,6 +43,44 @@ func PrepareOverlay(baseRootfs string) (*OverlayFS, error) {
 		WorkDir:     workDir,
 		MergedDir:   mergedDir,
 	}, nil
+}
+
+// InjectPayload copies a host file into the container's ephemeral upperdir/bin/
+// making it executable inside the container at /bin/<filename> with zero host directory exposure.
+func (o *OverlayFS) InjectPayload(hostPath string) (string, error) {
+	info, err := os.Stat(hostPath)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("path '%s' is a directory, not a file", hostPath)
+	}
+
+	targetDir := filepath.Join(o.UpperDir, "bin")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create upper/bin: %w", err)
+	}
+
+	baseName := filepath.Base(hostPath)
+	targetFile := filepath.Join(targetDir, baseName)
+
+	src, err := os.Open(hostPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open host payload: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(targetFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return "", fmt.Errorf("failed to write payload to upperdir: %w", err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return "", fmt.Errorf("failed to copy payload into upperdir: %w", err)
+	}
+
+	return filepath.Join("/bin", baseName), nil
 }
 
 // Mount performs the union mount inside the container's private mount namespace

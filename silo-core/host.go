@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -27,7 +29,25 @@ func run() int {
 		_ = overlay.Cleanup()
 	}()
 
-	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, os.Args[2:]...)...)
+	childArgs := append([]string{}, os.Args[2:]...)
+	targetPayload := childArgs[0]
+
+	// Determine if targetPayload is a host file that should be injected into the container
+	if _, err := os.Stat(targetPayload); err == nil {
+		_, inRootfs := os.Stat(filepath.Join(baseRootfs, targetPayload))
+		// Inject if it's a relative path (./app), an explicit local file, or missing from base rootfs
+		if inRootfs != nil || strings.HasPrefix(targetPayload, ".") || !filepath.IsAbs(targetPayload) {
+			injectedPath, err := overlay.InjectPayload(targetPayload)
+			if err != nil {
+				fmt.Printf("Silo Error: Failed to inject host payload '%s': %v\n", targetPayload, err)
+				return 1
+			}
+			Thought("Payload", "Ingested host file '%s' into ephemeral upperdir (%s) — host directory remains 100%% private", targetPayload, injectedPath)
+			childArgs[0] = injectedPath
+		}
+	}
+
+	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, childArgs...)...)
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
