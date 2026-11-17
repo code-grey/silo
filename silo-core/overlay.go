@@ -1,0 +1,59 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"syscall"
+	"time"
+)
+
+// OverlayFS holds the directory topology for a single ephemeral container instance
+type OverlayFS struct {
+	InstanceDir string
+	LowerDir    string
+	UpperDir    string
+	WorkDir     string
+	MergedDir   string
+}
+
+// PrepareOverlay creates the ephemeral upper, work, and merged directories on the host
+func PrepareOverlay(baseRootfs string) (*OverlayFS, error) {
+	// Unique instance ID prevents collisions between parallel containers
+	instanceID := fmt.Sprintf("inst-%d", time.Now().UnixNano()%100000000)
+	instanceDir := filepath.Join("/tmp/silo/instances", instanceID)
+
+	upperDir := filepath.Join(instanceDir, "upper")
+	workDir := filepath.Join(instanceDir, "work")
+	mergedDir := filepath.Join(instanceDir, "merged")
+
+	// Ensure all required directories exist
+	for _, dir := range []string{upperDir, workDir, mergedDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			_ = os.RemoveAll(instanceDir)
+			return nil, fmt.Errorf("failed to create overlay directory %s: %w", dir, err)
+		}
+	}
+
+	return &OverlayFS{
+		InstanceDir: instanceDir,
+		LowerDir:    baseRootfs,
+		UpperDir:    upperDir,
+		WorkDir:     workDir,
+		MergedDir:   mergedDir,
+	}, nil
+}
+
+// Mount performs the union mount inside the container's private mount namespace
+func (o *OverlayFS) Mount() error {
+	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", o.LowerDir, o.UpperDir, o.WorkDir)
+	if err := syscall.Mount("overlay", o.MergedDir, "overlay", 0, opts); err != nil {
+		return fmt.Errorf("failed to mount overlayfs at %s: %w", o.MergedDir, err)
+	}
+	return nil
+}
+
+// Cleanup permanently removes the ephemeral upper, work, and merged directories from disk
+func (o *OverlayFS) Cleanup() error {
+	return os.RemoveAll(o.InstanceDir)
+}

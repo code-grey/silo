@@ -91,3 +91,10 @@ CRITICAL: Container was terminated by the Linux OOM Killer!
 
 Once the container exits, check **Terminal 2** again with `ls -d /sys/fs/cgroup/silo-*` to confirm that the cgroup directory was cleanly deleted.
 
+## Verification Labs & Testing
+
+Silo includes hands-on, multi-terminal verification labs designed for learners to test and inspect kernel primitives in real-time:
+
+- 🧪 [**Concurrency, OverlayFS & Resource Isolation Lab**](docs/testing/v0.3-concurrency-and-isolation.md): Run concurrent containers side-by-side to verify independent OverlayFS `upperdir` scratchpads, PID 1 isolation, and Cgroups OOM blast-radius containment.
+
+

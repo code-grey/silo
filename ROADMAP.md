@@ -13,7 +13,7 @@ This document outlines the development milestones for Silo, tracking our progres
 - [x] **Catastrophe Post-Mortem:** Extract kernel cgroup events (`memory.events`, `memory.peak`, `pids.events`) on crash to diagnose OOM kills and fork-bombs.
 
 ## v0.3 - Storage, Images & Developer Ergonomics (In Progress)
-- [ ] **OverlayFS Layering:** Implement OverlayFS to separate a read-only base image (`lowerdir`) from an ephemeral container writable layer (`upperdir` + `workdir`).
+- [x] **OverlayFS Layering:** Implement OverlayFS to separate a read-only base image (`lowerdir`) from an ephemeral container writable layer (`upperdir` + `workdir`).
 - [ ] **Image Cache & Auto-Pull:** Automatically pull, verify, and locally cache base rootfs images (Alpine, Ubuntu, etc.) with offline-first local cache fallback.
 - [ ] **Smart ELF Binary Inspection (`debug/elf`):** Inspect target binary headers (`PT_INTERP`) using Go's standard library to detect static vs. glibc vs. musl dependencies, automatically picking the matching rootfs and preventing cryptic "file not found" dynamic linker errors.
 - [ ] **Volume / Bind Mounts (`-v`):** Support mounting host directories or project files into the container (e.g. `-v $(pwd):/app`) for seamless script and artifact execution.
