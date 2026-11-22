@@ -34,14 +34,18 @@ This document outlines the development milestones for Silo, tracking our progres
 - [ ] **Configurable Memory Limits (`-m / --memory`):** Allow user to specify custom RAM limits (e.g. `-m 128m`, `-m 512k`, `-m 1g`) with automatic human-to-byte parsing and custom OOM crash tracking.
 - [ ] **Configurable Process Ceilings (`--pids`):** Allow user to adjust max processes (e.g. `--pids 10` for judge sandboxes) to prevent thread-pool and fork-bomb attacks.
 - [ ] **Execution Timeouts & CPU Control (`-t / --timeout`, `--cpus`):** Intercept runaway loops with configurable timeout durations (e.g. `-t 2s`), force killing with structured `TIME_LIMIT_EXCEEDED (TLE)` verdicts, and cap CPU core quotas via `cpu.max`.
+- [ ] **Interactive Terminal Monitor (`silo mon` TUI):** Keyboard-driven live terminal dashboard displaying running containers, cgroups v2 telemetry gauges, OverlayFS layer inspectors, thought streams, and container controls (pause/resume, kill, PTY shell attach) with graceful quit semantics.
 
 ## v0.5 - Networking & Image Tags (Planned)
 - [ ] **Bridge Networking:** Set up bridge networking with `veth` pairs to provide network isolation and grant internet access to the containers.
 - [ ] **Versioned Image Tagging (`<image>:<tag>`):** Allow advanced users to select specific OS versions (e.g. `--image alpine:3.18`, `--image ubuntu:20.04`, `--image python:3.10`) with isolated cache directories and pinned LTS defaults.
 
-## v0.6 - Evaluation & Autograding Engine ("Silo Judge" Planned)
+## v0.6 - Evaluation, Analytics & Autograding Engine ("Silo Judge" Planned)
 - [ ] **Batch Testcase Evaluation:** Automated stdin injection and stdout/stderr capture against expected outputs with detailed diff reporting (AC, WA, TLE, MLE, RTE verdicts).
-- [ ] **Anti-Cheat Countermeasures:** Hidden test suites, dynamic randomized input generation, and resource enforcement to prevent hardcoded print matching.
+- [ ] **Differential Reference Testing (`--ref`):** Stress-testing candidate submissions against author golden solutions on randomized input generators.
+- [ ] **Static AST & Algorithmic Analysis:** AST linting for forbidden syscalls/imports (`os`, `subprocess`), structural constraints (recursion vs iteration), and anti-cheat hardcoded print matching.
+- [ ] **Empirical Complexity & Hardware Profiling:** Automated Big-O estimation across scaling inputs ($O(N)$ vs $O(N^2)$) using kernel `cpu.stat` and memory peak gauges.
+- [ ] **AI Pedagogical Coaching (Local LLM / Ollama):** Grounded, progressive Socratic guidance using local models (`qwen-coder`, `deepseek-coder`) to help learners optimize algorithms without spoiling solutions.
 - [ ] **High-Throughput gRPC Daemon:** Pre-warmed container worker pool communicating over UNIX domain sockets with gRPC for sub-millisecond test execution.
 
 ## Performance & Daemonless Speedups (Planned)
