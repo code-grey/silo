@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,19 @@ const (
 	memoryLimitBytes = "52428800" // 50 MB
 	pidsLimit        = "50"       // Max 50 processes
 )
+
+// CrashReport is the machine-readable post-mortem record saved on container crashes
+type CrashReport struct {
+	Timestamp        string `json:"timestamp"`
+	ContainerPID     int    `json:"container_pid"`
+	FailureReason    string `json:"failure_reason"`
+	MemoryLimitBytes string `json:"memory_limit_bytes"`
+	PeakMemoryBytes  string `json:"peak_memory_bytes"`
+	OOMKills         string `json:"oom_kills"`
+	LimitHitMax      string `json:"limit_hit_max,omitempty"`
+	PIDsLimit        string `json:"pids_limit,omitempty"`
+	PIDsMaxHits      string `json:"pids_max_hits,omitempty"`
+}
 
 // ensureSubtreeControllers ensures root cgroup exports memory and pids to children
 func ensureSubtreeControllers() {
@@ -74,6 +88,26 @@ func setupCgroup(pid int) (func(), error) {
 	return cleanup, nil
 }
 
+// saveCrashReport persists the structured post-mortem JSON to /tmp/silo/crashes/
+func saveCrashReport(report CrashReport) {
+	crashesDir := "/tmp/silo/crashes"
+	if err := os.MkdirAll(crashesDir, 0755); err != nil {
+		return
+	}
+
+	fileName := fmt.Sprintf("crash-%d-%d.json", time.Now().Unix(), report.ContainerPID)
+	filePath := filepath.Join(crashesDir, fileName)
+
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return
+	}
+
+	if err := os.WriteFile(filePath, data, 0644); err == nil {
+		Thought("CrashDump", "Saved structured crash report to %s", filePath)
+	}
+}
+
 // inspectCgroup analyzes cgroup events and prints a diagnostic post-mortem before teardown
 func inspectCgroup(pid int) {
 	cgroupDir := fmt.Sprintf("/sys/fs/cgroup/silo-%d", pid)
@@ -100,15 +134,27 @@ func inspectCgroup(pid int) {
 
 	oomKills := events["oom_kill"]
 	if oomKills != "" && oomKills != "0" {
+		maxHits := events["max"]
 		fmt.Println("\n================== SILO CATASTROPHE POST-MORTEM ==================")
 		fmt.Println("CRITICAL: Container was terminated by the Linux OOM Killer!")
 		fmt.Printf("• Failure Cause : Memory ceiling exceeded (%s bytes / ~50 MB)\n", memoryLimitBytes)
 		fmt.Printf("• Peak Memory   : %s bytes\n", peakStr)
 		fmt.Printf("• OOM Kills     : %s\n", oomKills)
-		if maxHits, ok := events["max"]; ok {
+		if maxHits != "" {
 			fmt.Printf("• Limit Hit Max : %s times\n", maxHits)
 		}
 		fmt.Println("==================================================================")
+
+		// Save structured JSON for automated pipelines & autograders
+		saveCrashReport(CrashReport{
+			Timestamp:        time.Now().UTC().Format(time.RFC3339),
+			ContainerPID:     pid,
+			FailureReason:    "OUT_OF_MEMORY_KILL",
+			MemoryLimitBytes: memoryLimitBytes,
+			PeakMemoryBytes:  peakStr,
+			OOMKills:         oomKills,
+			LimitHitMax:      maxHits,
+		})
 		return
 	}
 
@@ -128,6 +174,16 @@ func inspectCgroup(pid int) {
 			fmt.Printf("• Process Limit : %s max processes\n", pidsLimit)
 			fmt.Printf("• Breached Count: %s times fork() failed\n", maxHits)
 			fmt.Println("==================================================================")
+
+			saveCrashReport(CrashReport{
+				Timestamp:        time.Now().UTC().Format(time.RFC3339),
+				ContainerPID:     pid,
+				FailureReason:    "PID_LIMIT_BREACH",
+				MemoryLimitBytes: memoryLimitBytes,
+				PeakMemoryBytes:  peakStr,
+				PIDsLimit:        pidsLimit,
+				PIDsMaxHits:      maxHits,
+			})
 		}
 	}
 }
