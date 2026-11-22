@@ -36,18 +36,8 @@ echo ""
 echo "=================================================="
 echo " [SILO TEST HARNESS] Running E2E integration tests"
 echo "=================================================="
-
-# E2E tests require root privileges for namespaces, mounts, and cgroups
-if [ "$(id -u)" -ne 0 ]; then
-    if sudo -n true 2>/dev/null; then
-        echo "Elevating privileges with sudo (session credentials cached, no password prompt needed)..."
-    else
-        echo "Elevating privileges with sudo (please enter password if prompted)..."
-    fi
-    sudo -E env "PATH=$PATH" "$GO_BIN" test -v -timeout 120s ./tests/...
-else
-    "$GO_BIN" test -v -timeout 120s ./tests/...
-fi
+echo "Running E2E tests in unprivileged rootless mode (no sudo required)..."
+"$GO_BIN" test -v -timeout 120s ./tests/...
 
 echo ""
 echo "=================================================="

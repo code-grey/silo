@@ -23,7 +23,7 @@ type OverlayFS struct {
 func PrepareOverlay(baseRootfs string) (*OverlayFS, error) {
 	// Unique instance ID prevents collisions between parallel containers
 	instanceID := fmt.Sprintf("inst-%d", time.Now().UnixNano()%100000000)
-	instanceDir := filepath.Join("/tmp/silo/instances", instanceID)
+	instanceDir := filepath.Join(GetRuntimeDir(), "instances", instanceID)
 
 	upperDir := filepath.Join(instanceDir, "upper")
 	workDir := filepath.Join(instanceDir, "work")

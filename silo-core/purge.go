@@ -114,7 +114,7 @@ func purge(flags PurgeFlags) int {
 
 	// 2. Purge Abandoned Instances
 	if flags.All || flags.Instances {
-		instancesDir := "/tmp/silo/instances"
+		instancesDir := filepath.Join(GetRuntimeDir(), "instances")
 		if size, err := getDirSize(instancesDir); err == nil && size > 0 {
 			if err := os.RemoveAll(instancesDir); err == nil {
 				_ = os.MkdirAll(instancesDir, 0755)
@@ -130,7 +130,7 @@ func purge(flags PurgeFlags) int {
 
 	// 3. Purge Historical Crash Dumps
 	if flags.All || flags.Crashes {
-		crashesDir := "/tmp/silo/crashes"
+		crashesDir := filepath.Join(GetRuntimeDir(), "crashes")
 		if size, err := getDirSize(crashesDir); err == nil && size > 0 {
 			if err := os.RemoveAll(crashesDir); err == nil {
 				_ = os.MkdirAll(crashesDir, 0755)

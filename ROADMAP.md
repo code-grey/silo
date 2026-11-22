@@ -25,8 +25,12 @@ This document outlines the development milestones for Silo, tracking our progres
 - [x] **UNIX Standard Stream Isolation & Pre-Pivot `/dev` Hardening:** Isolated supervisor runtime logging to `os.Stderr` to keep container `stdout` 100% pure for shell pipelines. Pre-mounted `/dev` `tmpfs` and device nodes before `pivot_root`, laying the required foundation for v0.4 rootless execution.
 - [ ] **Self-Hosted Pre-Baked Runtime Tarballs:** Distribute official pre-compressed tarballs (Python, Node.js) via CDN/GitHub Releases for 1-second cold starts, falling back to dynamic `apk` synthesis.
 
-## v0.4 - Rootless Containers (Planned)
-- [ ] **User Namespaces:** Implement User Namespaces (`CLONE_NEWUSER`) along with UID/GID mappings. This will allow users to run `silo` containers without requiring `sudo` privileges on the host.
+## v0.4 - Rootless Containers (Completed)
+- [x] **User Namespaces (`CLONE_NEWUSER`):** Implemented User Namespaces with single-user UID/GID mapping (`host UID ➔ container UID 0`). Containers run completely unprivileged without `sudo`.
+- [x] **Unprivileged Cgroups v2 Delegation:** Transparent execution inside the user's delegated systemd service slice (`user@<uid>.service`), enforcing memory and process ceilings with live OOM catastrophe diagnostics in rootless mode.
+- [x] **User-Isolated Storage Paths:** Dynamic instance layers and crash report directories under `/tmp/silo-<uid>/` preventing cross-user permission conflicts on multi-user systems.
+- [x] **Pre-Pivot ProcFS & AppArmor Integration:** Hardened `/proc` with OCI-compliant mount flags (`MS_NOSUID|MS_NODEV|MS_NOEXEC`) inside user namespaces and established targeted AppArmor profile for Ubuntu 24.04.
+- [x] **100% Unprivileged E2E Test Suite:** Refactored entire test harness (`scripts/test.sh` and `tests/e2e_test.go`) to execute all 6 integration test suites with zero `sudo`.
 
 ## v0.5 - Networking & Image Tags (Planned)
 - [ ] **Bridge Networking:** Set up bridge networking with `veth` pairs to provide network isolation and grant internet access to the containers.

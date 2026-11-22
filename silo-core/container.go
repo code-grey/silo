@@ -139,7 +139,7 @@ func mountVolumes(mergedDir, volumeSpec string) error {
 func child() {
 	Thought("MountNamespace", "Isolated mount namespace active. Setting MS_PRIVATE propagation on host root.")
 	if err := syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, ""); err != nil {
-		panic(fmt.Sprintf("Failed to make root private: %v", err))
+		Thought("MountNamespace", "Notice: MS_PRIVATE on root returned: %v (continuing)", err)
 	}
 
 	Thought("UTSNamespace", "Setting isolated container hostname to 'silo-container'.")
@@ -176,14 +176,17 @@ func child() {
 		panic(fmt.Sprintf("setup /dev failed: %v", err))
 	}
 
+	// Setup /proc filesystem inside rootfs before pivot_root
+	procDir := filepath.Join(mergedDir, "proc")
+	_ = os.MkdirAll(procDir, 0755)
+	Thought("ProcFS", "Mounting fresh /proc virtual filesystem inside rootfs before pivot_root...")
+	if err := syscall.Mount("proc", procDir, "proc", syscall.MS_NOSUID|syscall.MS_NODEV|syscall.MS_NOEXEC, ""); err != nil {
+		panic(fmt.Sprintf("mount proc failed: %v", err))
+	}
+
 	Thought("pivot_root", "Swapping container root to %s and detaching old root.", mergedDir)
 	if err := pivotRoot(mergedDir); err != nil {
 		panic(fmt.Sprintf("PivotRoot failed: %v (Ensure target rootfs exists at %s)", err, mergedDir))
-	}
-
-	Thought("ProcFS", "Mounting fresh /proc virtual filesystem inside isolated PID namespace.")
-	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
-		panic(fmt.Sprintf("mount proc failed: %v", err))
 	}
 
 	// Switch to requested working directory if provided

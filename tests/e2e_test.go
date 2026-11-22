@@ -66,10 +66,6 @@ func runSilo(t *testing.T, cwd string, args ...string) (string, string, int) {
 // =========================================================================
 
 func TestE2E_Namespaces(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("E2E namespace tests require root privileges. Run with sudo.")
-	}
-
 	t.Run("UTS_Hostname_Isolation", func(t *testing.T) {
 		hostHostname, _ := os.Hostname()
 		stdout, stderr, code := runSilo(t, "", "run", "/bin/sh", "-c", "hostname")
@@ -117,16 +113,15 @@ func TestE2E_Namespaces(t *testing.T) {
 // =========================================================================
 
 func TestE2E_Cgroups(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("E2E Cgroups tests require root privileges. Run with sudo.")
-	}
-
 	t.Run("Memory_Limit_OOM_Kill_And_Crash_Dump", func(t *testing.T) {
-		crashDir := "/tmp/silo/crashes"
+		crashDir := fmt.Sprintf("/tmp/silo-%d/crashes", os.Getuid())
 		_ = os.RemoveAll(crashDir)
 
-		// OOM allocation loop in shell
-		_, _, code := runSilo(t, "", "run", "/bin/sh", "-c", "x=a; while true; do x=$x$x; done")
+		tempDir := t.TempDir()
+		oomScript := filepath.Join(tempDir, "oom.py")
+		_ = os.WriteFile(oomScript, []byte("x = bytearray(70 * 1024 * 1024)\n"), 0755)
+
+		_, _, code := runSilo(t, "", "run", oomScript)
 		if code == 0 {
 			t.Errorf("Expected OOM failure, but container exited with code 0")
 		}
@@ -177,10 +172,6 @@ func TestE2E_Cgroups(t *testing.T) {
 // =========================================================================
 
 func TestE2E_PreFlight_Languages(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("E2E language tests require root privileges. Run with sudo.")
-	}
-
 	t.Run("Shebangless_Python_Auto_Runner", func(t *testing.T) {
 		tempDir := t.TempDir()
 		script := filepath.Join(tempDir, "test.py")
@@ -239,10 +230,6 @@ func TestE2E_PreFlight_Languages(t *testing.T) {
 // =========================================================================
 
 func TestE2E_VolumeMounts(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("E2E volume tests require root privileges. Run with sudo.")
-	}
-
 	t.Run("Shorthand_Volume_And_Host_Write_Persistence", func(t *testing.T) {
 		projectDir := t.TempDir()
 
@@ -303,10 +290,6 @@ with open("output.txt", "w") as f:
 // =========================================================================
 
 func TestE2E_VirtualDevFS(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("E2E /dev tests require root privileges. Run with sudo.")
-	}
-
 	t.Run("DevNull_Urandom_Shm_Available", func(t *testing.T) {
 		cmdStr := "echo 'hello' > /dev/null && head -c 16 /dev/urandom | wc -c && df -h /dev/shm"
 		stdout, stderr, code := runSilo(t, "", "run", "/bin/sh", "-c", cmdStr)
@@ -332,7 +315,7 @@ func TestE2E_CLI_Commands(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("Version failed (code %d): %s", code, stderr)
 		}
-		if !strings.Contains(stdout, "v0.3.3") && !strings.Contains(stdout, "Silo Container Runtime") {
+		if !strings.Contains(stdout, "v0.4.0") && !strings.Contains(stdout, "Silo Container Runtime") {
 			t.Errorf("Unexpected version output: %s", stdout)
 		}
 	})

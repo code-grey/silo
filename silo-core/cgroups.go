@@ -28,9 +28,32 @@ type CrashReport struct {
 	PIDsMaxHits      int    `json:"pids_max_hits,omitempty"`
 }
 
-// ensureSubtreeControllers ensures root cgroup exports memory and pids to children
+// GetRuntimeDir returns a user-isolated path for ephemeral instances and crash dumps
+func GetRuntimeDir() string {
+	return fmt.Sprintf("/tmp/silo-%d", os.Getuid())
+}
+
+// GetCgroupBaseDir returns the base Cgroups v2 hierarchy path.
+// For root: /sys/fs/cgroup
+// For unprivileged user: the delegated user service slice
+func GetCgroupBaseDir() string {
+	if os.Geteuid() == 0 {
+		return "/sys/fs/cgroup"
+	}
+	userSlice := fmt.Sprintf("/sys/fs/cgroup/user.slice/user-%d.slice/user@%d.service", os.Getuid(), os.Getuid())
+	if _, err := os.Stat(userSlice); err == nil {
+		return userSlice
+	}
+	userSliceSimple := fmt.Sprintf("/sys/fs/cgroup/user.slice/user-%d.slice", os.Getuid())
+	if _, err := os.Stat(userSliceSimple); err == nil {
+		return userSliceSimple
+	}
+	return "/sys/fs/cgroup"
+}
+
+// ensureSubtreeControllers ensures base cgroup exports memory and pids to children
 func ensureSubtreeControllers() {
-	subtreePath := "/sys/fs/cgroup/cgroup.subtree_control"
+	subtreePath := filepath.Join(GetCgroupBaseDir(), "cgroup.subtree_control")
 	data, err := os.ReadFile(subtreePath)
 	if err != nil {
 		return
@@ -51,7 +74,7 @@ func ensureSubtreeControllers() {
 func setupCgroup(pid int) (func(), error) {
 	ensureSubtreeControllers()
 
-	cgroupDir := fmt.Sprintf("/sys/fs/cgroup/silo-%d", pid)
+	cgroupDir := filepath.Join(GetCgroupBaseDir(), fmt.Sprintf("silo-%d", pid))
 
 	// 1. Create per-container cgroup directory
 	if err := os.MkdirAll(cgroupDir, 0755); err != nil {
@@ -88,9 +111,9 @@ func setupCgroup(pid int) (func(), error) {
 	return cleanup, nil
 }
 
-// saveCrashReport persists the structured post-mortem JSON to /tmp/silo/crashes/
+// saveCrashReport persists the structured post-mortem JSON to the user's runtime crash directory
 func saveCrashReport(report CrashReport) {
-	crashesDir := "/tmp/silo/crashes"
+	crashesDir := filepath.Join(GetRuntimeDir(), "crashes")
 	if err := os.MkdirAll(crashesDir, 0755); err != nil {
 		return
 	}
@@ -110,7 +133,7 @@ func saveCrashReport(report CrashReport) {
 
 // inspectCgroup analyzes cgroup events and prints a diagnostic post-mortem before teardown
 func inspectCgroup(pid int) {
-	cgroupDir := fmt.Sprintf("/sys/fs/cgroup/silo-%d", pid)
+	cgroupDir := filepath.Join(GetCgroupBaseDir(), fmt.Sprintf("silo-%d", pid))
 
 	// 1. Check memory events (OOM)
 	eventsData, err := os.ReadFile(filepath.Join(cgroupDir, "memory.events"))

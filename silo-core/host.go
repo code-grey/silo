@@ -177,6 +177,18 @@ func run(cfg *RunConfig) int {
 		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
 	}
 
+	if os.Geteuid() != 0 {
+		Thought("UserNamespace", "Unprivileged execution detected: enabling CLONE_NEWUSER with host UID %d ➔ container UID 0 mapping", os.Getuid())
+		cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWUSER
+		cmd.SysProcAttr.UidMappings = []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
+		}
+		cmd.SysProcAttr.GidMappings = []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getgid(), Size: 1},
+		}
+		cmd.SysProcAttr.GidMappingsEnableSetgroups = false
+	}
+
 	// Propagate overlay configuration and volume specifications into container environment
 	cmd.Env = append(os.Environ(),
 		"SILO_INSTANCE="+overlay.InstanceDir,
@@ -201,12 +213,16 @@ func run(cfg *RunConfig) int {
 
 	Thought("Namespaces", "Spawning container supervisor with CLONE_NEWUTS | CLONE_NEWPID | CLONE_NEWNS...")
 	if err := cmd.Start(); err != nil {
+		if os.IsPermission(err) && os.Geteuid() != 0 {
+			fmt.Fprintf(os.Stderr, "Silo Security Warning: Linux kernel blocked unprivileged user namespace creation.\n")
+			fmt.Fprintf(os.Stderr, "On Ubuntu 24.04, ensure /etc/apparmor.d/silo is loaded or run with sudo.\n")
+		}
 		fmt.Fprintf(os.Stderr, "Error running the run command - %s\n", err)
 		return 1
 	}
 	fmt.Fprintf(os.Stderr, "Silo: Container booted successfully (Host PID: %d)\n", cmd.Process.Pid)
 
-	Thought("Cgroups v2", "Allocating /sys/fs/cgroup/silo-%d and attaching host PID %d...", cmd.Process.Pid, cmd.Process.Pid)
+	Thought("Cgroups v2", "Allocating cgroup and attaching host PID %d...", cmd.Process.Pid)
 	cleanupCgroup, err := setupCgroup(cmd.Process.Pid)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Silo Error: Failed to setup cgroups: %v\n", err)
@@ -214,7 +230,7 @@ func run(cfg *RunConfig) int {
 		return 1
 	}
 	defer func() {
-		Thought("Cgroups v2", "Destroying cgroup /sys/fs/cgroup/silo-%d...", cmd.Process.Pid)
+		Thought("Cgroups v2", "Destroying cgroup for host PID %d...", cmd.Process.Pid)
 		cleanupCgroup()
 	}()
 

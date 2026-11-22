@@ -3,11 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 )
 
-const Version = "v0.3.3"
+const Version = "v0.4.0"
 
 func usage(exitCode int) {
 	fmt.Printf("Silo Container Runtime %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)
@@ -38,7 +39,39 @@ func usage(exitCode int) {
 func printVersion() {
 	fmt.Printf("Silo Container Runtime %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)
 	fmt.Println("Storage Engine: Ephemeral OverlayFS (kernel)")
-	fmt.Println("Isolation: Namespaces (PID, Mount, UTS) + Cgroups v2")
+	fmt.Println("Isolation: Namespaces (PID, Mount, UTS, User/Rootless) + Cgroups v2")
+}
+
+// ensureUserScope ensures rootless containers run within the user's delegated systemd slice,
+// allowing full Cgroups v2 control without requiring root or sudo.
+func ensureUserScope() {
+	if os.Geteuid() == 0 || os.Getenv("SILO_IN_USER_SCOPE") != "" {
+		return
+	}
+
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return
+	}
+	cgroup := strings.TrimSpace(string(data))
+
+	// If running inside a terminal session scope (session-*.scope), migrate into user@<uid>.service
+	if strings.Contains(cgroup, "session-") && strings.Contains(cgroup, ".scope") {
+		if _, err := exec.LookPath("systemd-run"); err == nil {
+			os.Setenv("SILO_IN_USER_SCOPE", "1")
+			cmd := exec.Command("systemd-run", append([]string{"--user", "--scope", "--quiet", "--", os.Args[0]}, os.Args[1:]...)...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					os.Exit(exitErr.ExitCode())
+				}
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+	}
 }
 
 func main() {
@@ -54,6 +87,7 @@ func main() {
 		if len(args) == 0 {
 			usage(1)
 		}
+		ensureUserScope()
 		cfg, err := parseRunConfig(args)
 		if err != nil {
 			fmt.Printf("Silo Error: %v\n", err)
