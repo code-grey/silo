@@ -8,9 +8,11 @@ import (
 func usage() {
 	fmt.Println("Usage: silo <command> [flags] [arguments...]")
 	fmt.Println("\nCommands:")
-	fmt.Println("  run [--image <name>] <cmd/file> [args...]   Run a command or file inside an isolated container")
+	fmt.Println("  run [flags] <cmd/file> [args...]   Run a command or file inside an isolated container")
 	fmt.Println("\nFlags for 'run':")
-	fmt.Println("  --image <name>   Explicitly specify base image (e.g. alpine, debian, python, node)")
+	fmt.Println("  -v, --volume [host:target[:ro]]    Bind mount host directory (bare -v auto-binds pwd to /workspace)")
+	fmt.Println("  -w, --workdir <path>               Set initial working directory inside container")
+	fmt.Println("  --image <name>                     Explicitly specify base image (e.g. alpine, debian, python, node)")
 	os.Exit(1)
 }
 

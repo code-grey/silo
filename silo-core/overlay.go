@@ -100,7 +100,21 @@ func (o *OverlayFS) Mount() error {
 	return nil
 }
 
-// Cleanup permanently removes the ephemeral upper, work, and merged directories from disk
+// Cleanup permanently removes the ephemeral upper and work directories from disk.
+// It enforces strict mount-boundary safety: unmounting mergedDir with MNT_DETACH
+// and only performing non-recursive removal on mergedDir to guarantee it NEVER deletes into host volumes.
 func (o *OverlayFS) Cleanup() error {
-	return os.RemoveAll(o.InstanceDir)
+	// Step 1: Explicitly unmount mergedDir to sever any lingering kernel mount references
+	_ = syscall.Unmount(o.MergedDir, syscall.MNT_DETACH)
+
+	// Step 2: Safely remove the ephemeral upper and work scratch spaces
+	_ = os.RemoveAll(o.UpperDir)
+	_ = os.RemoveAll(o.WorkDir)
+
+	// Step 3: Remove mergedDir non-recursively. If a mount is still attached,
+	// os.Remove will safely fail with EBUSY instead of traversing and deleting host files.
+	_ = os.Remove(o.MergedDir)
+
+	// Step 4: Remove the instance root directory if empty
+	return os.Remove(o.InstanceDir)
 }

@@ -11,8 +11,41 @@ import (
 	"time"
 )
 
+// parseVolumeArg parses a volume string (e.g. ".", "./data:/data:ro", "/host:/container")
+func parseVolumeArg(vol string) string {
+	parts := strings.Split(vol, ":")
+	if len(parts) == 0 || parts[0] == "" {
+		return ""
+	}
+
+	hostPath := parts[0]
+	if hostPath == "." {
+		if cwd, err := os.Getwd(); err == nil {
+			hostPath = cwd
+		}
+	} else if abs, err := filepath.Abs(hostPath); err == nil {
+		hostPath = abs
+	}
+
+	containerPath := "/workspace"
+	mode := "rw"
+	if len(parts) >= 2 && parts[1] != "" {
+		containerPath = parts[1]
+		if !filepath.IsAbs(containerPath) {
+			containerPath = "/" + containerPath
+		}
+	}
+	if len(parts) >= 3 && parts[2] == "ro" {
+		mode = "ro"
+	}
+
+	return fmt.Sprintf("%s:%s:%s", hostPath, containerPath, mode)
+}
+
 func run(args []string) int {
 	var explicitImage string
+	var volumes []string
+	var workdir string
 	var payloadArgs []string
 
 	// Parse flags while allowing standard positional payload arguments
@@ -23,6 +56,30 @@ func run(args []string) int {
 			i++
 		} else if strings.HasPrefix(arg, "--image=") {
 			explicitImage = strings.TrimPrefix(arg, "--image=")
+		} else if (arg == "-w" || arg == "--workdir") && i+1 < len(args) {
+			workdir = args[i+1]
+			i++
+		} else if strings.HasPrefix(arg, "-w=") || strings.HasPrefix(arg, "--workdir=") {
+			workdir = strings.TrimPrefix(strings.TrimPrefix(arg, "-w="), "--workdir=")
+		} else if arg == "-v" || arg == "--volume" {
+			// Check if next argument is a volume specification (contains ":" or is a relative path ".")
+			if i+1 < len(args) && (strings.Contains(args[i+1], ":") || args[i+1] == ".") {
+				volArg := args[i+1]
+				i++
+				if v := parseVolumeArg(volArg); v != "" {
+					volumes = append(volumes, v)
+				}
+			} else {
+				// Bare -v shorthand! Auto-bind current directory to /workspace
+				if cwd, err := os.Getwd(); err == nil {
+					volumes = append(volumes, fmt.Sprintf("%s:/workspace:rw", cwd))
+				}
+			}
+		} else if strings.HasPrefix(arg, "-v=") || strings.HasPrefix(arg, "--volume=") {
+			volArg := strings.TrimPrefix(strings.TrimPrefix(arg, "-v="), "--volume=")
+			if v := parseVolumeArg(volArg); v != "" {
+				volumes = append(volumes, v)
+			}
 		} else {
 			payloadArgs = args[i:]
 			break
@@ -32,6 +89,16 @@ func run(args []string) int {
 	if len(payloadArgs) == 0 {
 		fmt.Println("Silo Error: No command or payload specified to run.")
 		return 1
+	}
+
+	// Auto-default working directory to /workspace if a volume is mounted to /workspace
+	if workdir == "" && len(volumes) > 0 {
+		for _, v := range volumes {
+			if strings.Contains(v, ":/workspace:") {
+				workdir = "/workspace"
+				break
+			}
+		}
 	}
 
 	targetPayload := payloadArgs[0]
@@ -68,26 +135,34 @@ func run(args []string) int {
 
 	childArgs := append([]string{}, payloadArgs...)
 
-	// Phase 4: Single-File Payload Injection & Execution Auto-Wrapping
-	if _, err := os.Stat(targetPayload); err == nil {
-		_, inRootfs := os.Stat(filepath.Join(baseRootfs, targetPayload))
-		if inRootfs != nil || strings.HasPrefix(targetPayload, ".") || !filepath.IsAbs(targetPayload) {
-			injectedPath, err := overlay.InjectPayload(targetPayload)
-			if err != nil {
-				fmt.Printf("Silo Error: Failed to inject host payload '%s': %v\n", targetPayload, err)
-				return 1
-			}
-			Thought("Payload", "Ingested host file '%s' into ephemeral upperdir (%s) — host directory remains 100%% private", targetPayload, injectedPath)
-
-			if len(inspection.Runner) > 0 {
-				childArgs = append(append([]string{}, inspection.Runner...), injectedPath)
-				if len(payloadArgs) > 1 {
-					childArgs = append(childArgs, payloadArgs[1:]...)
+	// Phase 4: Single-File Payload Injection (only if no workspace volume is mounted)
+	if len(volumes) == 0 {
+		if _, err := os.Stat(targetPayload); err == nil {
+			_, inRootfs := os.Stat(filepath.Join(baseRootfs, targetPayload))
+			if inRootfs != nil || strings.HasPrefix(targetPayload, ".") || !filepath.IsAbs(targetPayload) {
+				injectedPath, err := overlay.InjectPayload(targetPayload)
+				if err != nil {
+					fmt.Printf("Silo Error: Failed to inject host payload '%s': %v\n", targetPayload, err)
+					return 1
 				}
-				Thought("Runner", "Auto-wrapping execution with interpreter: %s", strings.Join(childArgs, " "))
-			} else {
-				childArgs[0] = injectedPath
+				Thought("Payload", "Ingested host file '%s' into ephemeral upperdir (%s) — host directory remains 100%% private", targetPayload, injectedPath)
+
+				if len(inspection.Runner) > 0 {
+					childArgs = append(append([]string{}, inspection.Runner...), injectedPath)
+					if len(payloadArgs) > 1 {
+						childArgs = append(childArgs, payloadArgs[1:]...)
+					}
+					Thought("Runner", "Auto-wrapping execution with interpreter: %s", strings.Join(childArgs, " "))
+				} else {
+					childArgs[0] = injectedPath
+				}
 			}
+		}
+	} else {
+		// Volume mounted: auto-wrap runner if executing a script directly in the workspace
+		if len(inspection.Runner) > 0 && len(payloadArgs) > 0 && !strings.Contains(payloadArgs[0], inspection.Runner[0]) {
+			childArgs = append(append([]string{}, inspection.Runner...), payloadArgs...)
+			Thought("Runner", "Auto-wrapping workspace execution with interpreter: %s", strings.Join(childArgs, " "))
 		}
 	}
 
@@ -97,7 +172,7 @@ func run(args []string) int {
 		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
 	}
 
-	// Propagate overlay configuration into the container process environment
+	// Propagate overlay configuration and volume specifications into container environment
 	cmd.Env = append(os.Environ(),
 		"SILO_INSTANCE="+overlay.InstanceDir,
 		"SILO_LOWER="+overlay.LowerDir,
@@ -105,6 +180,15 @@ func run(args []string) int {
 		"SILO_WORK="+overlay.WorkDir,
 		"SILO_MERGED="+overlay.MergedDir,
 	)
+
+	if len(volumes) > 0 {
+		cmd.Env = append(cmd.Env, "SILO_VOLUMES="+strings.Join(volumes, ";"))
+		Thought("Storage", "Volume mount configured: %s", strings.Join(volumes, ", "))
+	}
+	if workdir != "" {
+		cmd.Env = append(cmd.Env, "SILO_WORKDIR="+workdir)
+		Thought("Storage", "Target working directory: '%s'", workdir)
+	}
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

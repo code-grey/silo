@@ -12,14 +12,15 @@ This document outlines the development milestones for Silo, tracking our progres
 - [x] **Resource Control (Cgroups v2):** Implement memory and CPU constraints using the Cgroups v2 `/sys/fs/cgroup` interface.
 - [x] **Catastrophe Post-Mortem:** Extract kernel cgroup events (`memory.events`, `memory.peak`, `pids.events`) on crash to diagnose OOM kills and fork-bombs.
 
-## v0.3 - Storage, Images & Developer Ergonomics (In Progress)
+## v0.3 - Storage, Images & Developer Ergonomics (Completed)
 - [x] **OverlayFS Layering:** Implement OverlayFS to separate a read-only base image (`lowerdir`) from an ephemeral container writable layer (`upperdir` + `workdir`).
 - [x] **Single-File Drop-in Runner:** Ingest local scripts or binaries directly into the ephemeral upper layer (`/bin/`) without exposing host directories.
 - [x] **Structured Crash Dump:** Output machine-readable JSON post-mortem reports (`silo-crash-<id>.json`) for automated pipelines and autograders.
 - [x] **Image Cache & Auto-Pull:** Automatically pull, verify, and locally cache base rootfs images (Alpine, Ubuntu, etc.) with offline-first local cache fallback.
 - [x] **Smart Pre-Flight Inspection & Auto-Wrapping:** Inspect ELF binary headers (`PT_INTERP`) and sniff shebangs/extensions across mainstream languages (Python, Node, Ruby, Perl, PHP, Java bytecode, Shell), auto-wrapping execution with the matching runtime to eliminate Linux kernel `ENOEXEC` errors.
+- [x] **Volume / Bind Mounts (`-v` & `-w`):** Full support for host directory mounts with ergonomic shorthand (`-v`), read-only security (`:ro` remount dance), working directory switching (`-w`), and intentional host write persistence.
+- [x] **Secure Virtual `/dev` Filesystem & Cleanup Guards:** OCI-compliant `/dev` with safe character nodes (`null`, `zero`, `urandom`, `tty`), `/dev/shm` (POSIX shared memory), and mount-boundary unmount protection.
 - [ ] **Self-Hosted Pre-Baked Runtime Tarballs:** Distribute official pre-compressed tarballs (Python, Node.js) via CDN/GitHub Releases for 1-second cold starts, falling back to dynamic `apk` synthesis.
-- [ ] **Volume / Bind Mounts (`-v`):** Support mounting host directories or project files into the container (e.g. `-v $(pwd):/app`) for seamless script and artifact execution.
 
 ## v0.4 - Rootless Containers (Planned)
 - [ ] **User Namespaces:** Implement User Namespaces (`CLONE_NEWUSER`) along with UID/GID mappings. This will allow users to run `silo` containers without requiring `sudo` privileges on the host.
