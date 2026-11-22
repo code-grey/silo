@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -132,7 +133,7 @@ func EnsureImage(imageName string) (string, error) {
 		Thought("Image", "Downloading %s from official mirror...", spec.Description)
 		if err := downloadAndExtractRootfs(spec, targetRootfs); err != nil {
 			Thought("Image", "⚠️ Download failed: %v", err)
-			return fallbackToLegacyRootfs()
+			return fallbackToLegacyRootfs(fmt.Errorf("failed to provision image '%s': %w", imageName, err))
 		}
 		Thought("Image", "Cached image '%s' successfully at %s", imageName, targetRootfs)
 		return targetRootfs, nil
@@ -144,7 +145,7 @@ func EnsureImage(imageName string) (string, error) {
 		Thought("Image", "Downloading Alpine v3.19.0 minirootfs from official mirror...")
 		if err := downloadAndExtractRootfs(ImageCatalog["alpine"], alpineRootfs); err != nil {
 			Thought("Image", "⚠️ Base Alpine download failed: %v", err)
-			return fallbackToLegacyRootfs()
+			return fallbackToLegacyRootfs(fmt.Errorf("failed to download base Alpine image: %w", err))
 		}
 		Thought("Image", "Cached base Alpine image successfully at %s", alpineRootfs)
 	}
@@ -163,12 +164,15 @@ func EnsureImage(imageName string) (string, error) {
 	return alpineRootfs, nil
 }
 
-// fallbackToLegacyRootfs checks for a previously prepared rootfs if network is unreachable
-func fallbackToLegacyRootfs() (string, error) {
+// fallbackToLegacyRootfs checks for a previously prepared rootfs if network or download fails
+func fallbackToLegacyRootfs(cause error) (string, error) {
 	legacy := "/tmp/silo-container/rootfs"
 	if isRootfsValid(legacy) {
 		Thought("Image", "⚠️ Operating offline: using existing local rootfs at %s", legacy)
 		return legacy, nil
+	}
+	if cause != nil {
+		return "", fmt.Errorf("no cached image and %w", cause)
 	}
 	return "", fmt.Errorf("no cached image and network unreachable")
 }
@@ -285,6 +289,20 @@ func downloadAndExtractRootfs(spec ImageSpec, targetDir string) error {
 			_ = os.Remove(targetPath)
 			oldPath := filepath.Join(targetDir, header.Linkname)
 			_ = os.Link(oldPath, targetPath)
+		}
+	}
+
+	// If executed under sudo, restore ownership of the downloaded image directory to SUDO_USER
+	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" && os.Geteuid() == 0 {
+		if u, err := user.Lookup(sudoUser); err == nil {
+			uid, _ := strconv.Atoi(u.Uid)
+			gid, _ := strconv.Atoi(u.Gid)
+			_ = filepath.Walk(filepath.Dir(targetDir), func(p string, info os.FileInfo, err error) error {
+				if err == nil {
+					_ = os.Chown(p, uid, gid)
+				}
+				return nil
+			})
 		}
 	}
 
