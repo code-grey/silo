@@ -20,6 +20,7 @@ This document outlines the development milestones for Silo, tracking our progres
 - [x] **Smart Pre-Flight Inspection & Auto-Wrapping:** Inspect ELF binary headers (`PT_INTERP`) and sniff shebangs/extensions across mainstream languages (Python, Node, Ruby, Perl, PHP, Java bytecode, Shell), auto-wrapping execution with the matching runtime to eliminate Linux kernel `ENOEXEC` errors.
 - [x] **Volume / Bind Mounts (`-v` & `-w`):** Full support for host directory mounts with ergonomic shorthand (`-v`), read-only security (`:ro` remount dance), working directory switching (`-w`), and intentional host write persistence.
 - [x] **Secure Virtual `/dev` Filesystem & Cleanup Guards:** OCI-compliant `/dev` with safe character nodes (`null`, `zero`, `urandom`, `tty`), `/dev/shm` (POSIX shared memory), and mount-boundary unmount protection.
+- [x] **Modular CLI & Storage Management (`images`, `purge`):** Clean zero-dependency command router with image inspection, human-readable size reporting, and granular storage reclamation.
 - [ ] **Self-Hosted Pre-Baked Runtime Tarballs:** Distribute official pre-compressed tarballs (Python, Node.js) via CDN/GitHub Releases for 1-second cold starts, falling back to dynamic `apk` synthesis.
 
 ## v0.4 - Rootless Containers (Planned)

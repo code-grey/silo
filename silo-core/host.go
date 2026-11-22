@@ -11,6 +11,14 @@ import (
 	"time"
 )
 
+// RunConfig holds the validated configuration for container execution
+type RunConfig struct {
+	Image       string
+	Volumes     []string
+	Workdir     string
+	PayloadArgs []string
+}
+
 // parseVolumeArg parses a volume string (e.g. ".", "./data:/data:ro", "/host:/container")
 func parseVolumeArg(vol string) string {
 	parts := strings.Split(vol, ":")
@@ -42,75 +50,72 @@ func parseVolumeArg(vol string) string {
 	return fmt.Sprintf("%s:%s:%s", hostPath, containerPath, mode)
 }
 
-func run(args []string) int {
-	var explicitImage string
-	var volumes []string
-	var workdir string
-	var payloadArgs []string
+// parseRunConfig extracts and validates flags from the command line arguments
+func parseRunConfig(args []string) (*RunConfig, error) {
+	cfg := &RunConfig{}
 
-	// Parse flags while allowing standard positional payload arguments
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--image" && i+1 < len(args) {
-			explicitImage = args[i+1]
+			cfg.Image = args[i+1]
 			i++
 		} else if strings.HasPrefix(arg, "--image=") {
-			explicitImage = strings.TrimPrefix(arg, "--image=")
+			cfg.Image = strings.TrimPrefix(arg, "--image=")
 		} else if (arg == "-w" || arg == "--workdir") && i+1 < len(args) {
-			workdir = args[i+1]
+			cfg.Workdir = args[i+1]
 			i++
 		} else if strings.HasPrefix(arg, "-w=") || strings.HasPrefix(arg, "--workdir=") {
-			workdir = strings.TrimPrefix(strings.TrimPrefix(arg, "-w="), "--workdir=")
+			cfg.Workdir = strings.TrimPrefix(strings.TrimPrefix(arg, "-w="), "--workdir=")
 		} else if arg == "-v" || arg == "--volume" {
-			// Check if next argument is a volume specification (contains ":" or is a relative path ".")
 			if i+1 < len(args) && (strings.Contains(args[i+1], ":") || args[i+1] == ".") {
 				volArg := args[i+1]
 				i++
 				if v := parseVolumeArg(volArg); v != "" {
-					volumes = append(volumes, v)
+					cfg.Volumes = append(cfg.Volumes, v)
 				}
 			} else {
-				// Bare -v shorthand! Auto-bind current directory to /workspace
 				if cwd, err := os.Getwd(); err == nil {
-					volumes = append(volumes, fmt.Sprintf("%s:/workspace:rw", cwd))
+					cfg.Volumes = append(cfg.Volumes, fmt.Sprintf("%s:/workspace:rw", cwd))
 				}
 			}
 		} else if strings.HasPrefix(arg, "-v=") || strings.HasPrefix(arg, "--volume=") {
 			volArg := strings.TrimPrefix(strings.TrimPrefix(arg, "-v="), "--volume=")
 			if v := parseVolumeArg(volArg); v != "" {
-				volumes = append(volumes, v)
+				cfg.Volumes = append(cfg.Volumes, v)
 			}
 		} else {
-			payloadArgs = args[i:]
+			cfg.PayloadArgs = args[i:]
 			break
 		}
 	}
 
-	if len(payloadArgs) == 0 {
-		fmt.Println("Silo Error: No command or payload specified to run.")
-		return 1
+	if len(cfg.PayloadArgs) == 0 {
+		return nil, fmt.Errorf("no command or payload specified to run")
 	}
 
 	// Auto-default working directory to /workspace if a volume is mounted to /workspace
-	if workdir == "" && len(volumes) > 0 {
-		for _, v := range volumes {
+	if cfg.Workdir == "" && len(cfg.Volumes) > 0 {
+		for _, v := range cfg.Volumes {
 			if strings.Contains(v, ":/workspace:") {
-				workdir = "/workspace"
+				cfg.Workdir = "/workspace"
 				break
 			}
 		}
 	}
 
-	targetPayload := payloadArgs[0]
+	return cfg, nil
+}
+
+func run(cfg *RunConfig) int {
+	targetPayload := cfg.PayloadArgs[0]
 
 	// Phase 1: Pre-Flight Runtime Detection
 	inspection := InspectPayload(targetPayload)
-	var targetImage string
-	if explicitImage != "" {
-		targetImage = explicitImage
+	targetImage := inspection.RecommendedImage
+	if cfg.Image != "" {
+		targetImage = cfg.Image
 		Thought("PreFlight", "Explicit image specified by user: '%s' (payload: %s)", targetImage, inspection.Reason)
 	} else {
-		targetImage = inspection.RecommendedImage
 		Thought("PreFlight", "Payload analysis: %s ➔ Selected image '%s'", inspection.Reason, targetImage)
 	}
 
@@ -133,10 +138,10 @@ func run(args []string) int {
 		_ = overlay.Cleanup()
 	}()
 
-	childArgs := append([]string{}, payloadArgs...)
+	childArgs := append([]string{}, cfg.PayloadArgs...)
 
 	// Phase 4: Single-File Payload Injection (only if no workspace volume is mounted)
-	if len(volumes) == 0 {
+	if len(cfg.Volumes) == 0 {
 		if _, err := os.Stat(targetPayload); err == nil {
 			_, inRootfs := os.Stat(filepath.Join(baseRootfs, targetPayload))
 			if inRootfs != nil || strings.HasPrefix(targetPayload, ".") || !filepath.IsAbs(targetPayload) {
@@ -149,8 +154,8 @@ func run(args []string) int {
 
 				if len(inspection.Runner) > 0 {
 					childArgs = append(append([]string{}, inspection.Runner...), injectedPath)
-					if len(payloadArgs) > 1 {
-						childArgs = append(childArgs, payloadArgs[1:]...)
+					if len(cfg.PayloadArgs) > 1 {
+						childArgs = append(childArgs, cfg.PayloadArgs[1:]...)
 					}
 					Thought("Runner", "Auto-wrapping execution with interpreter: %s", strings.Join(childArgs, " "))
 				} else {
@@ -160,8 +165,8 @@ func run(args []string) int {
 		}
 	} else {
 		// Volume mounted: auto-wrap runner if executing a script directly in the workspace
-		if len(inspection.Runner) > 0 && len(payloadArgs) > 0 && !strings.Contains(payloadArgs[0], inspection.Runner[0]) {
-			childArgs = append(append([]string{}, inspection.Runner...), payloadArgs...)
+		if len(inspection.Runner) > 0 && len(cfg.PayloadArgs) > 0 && !strings.Contains(cfg.PayloadArgs[0], inspection.Runner[0]) {
+			childArgs = append(append([]string{}, inspection.Runner...), cfg.PayloadArgs...)
 			Thought("Runner", "Auto-wrapping workspace execution with interpreter: %s", strings.Join(childArgs, " "))
 		}
 	}
@@ -181,13 +186,13 @@ func run(args []string) int {
 		"SILO_MERGED="+overlay.MergedDir,
 	)
 
-	if len(volumes) > 0 {
-		cmd.Env = append(cmd.Env, "SILO_VOLUMES="+strings.Join(volumes, ";"))
-		Thought("Storage", "Volume mount configured: %s", strings.Join(volumes, ", "))
+	if len(cfg.Volumes) > 0 {
+		cmd.Env = append(cmd.Env, "SILO_VOLUMES="+strings.Join(cfg.Volumes, ";"))
+		Thought("Storage", "Volume mount configured: %s", strings.Join(cfg.Volumes, ", "))
 	}
-	if workdir != "" {
-		cmd.Env = append(cmd.Env, "SILO_WORKDIR="+workdir)
-		Thought("Storage", "Target working directory: '%s'", workdir)
+	if cfg.Workdir != "" {
+		cmd.Env = append(cmd.Env, "SILO_WORKDIR="+cfg.Workdir)
+		Thought("Storage", "Target working directory: '%s'", cfg.Workdir)
 	}
 
 	cmd.Stdin = os.Stdin
