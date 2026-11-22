@@ -35,6 +35,7 @@ This document outlines the development milestones for Silo, tracking our progres
 - [ ] **Configurable Process Ceilings (`--pids`):** Allow user to adjust max processes (e.g. `--pids 10` for judge sandboxes) to prevent thread-pool and fork-bomb attacks.
 - [ ] **Execution Timeouts & CPU Control (`-t / --timeout`, `--cpus`):** Intercept runaway loops with configurable timeout durations (e.g. `-t 2s`), force killing with structured `TIME_LIMIT_EXCEEDED (TLE)` verdicts, and cap CPU core quotas via `cpu.max`.
 - [ ] **Interactive Terminal Monitor (`silo mon` TUI):** Keyboard-driven live terminal dashboard displaying running containers, cgroups v2 telemetry gauges, OverlayFS layer inspectors, thought streams, and container controls (pause/resume, kill, PTY shell attach) with graceful quit semantics.
+- [ ] **Pre-Flight Standard Shell Fast-Path:** Treat ubiquitous POSIX container shells (`/bin/sh`, `sh`, `ash`) as internal container commands rather than inspecting the host's dynamically linked glibc binary, defaulting to ultra-compact Alpine (~3.3MB) unless `--image` or bash is requested.
 
 ## v0.5 - Networking & Image Tags (Planned)
 - [ ] **Bridge Networking:** Set up bridge networking with `veth` pairs to provide network isolation and grant internet access to the containers.
