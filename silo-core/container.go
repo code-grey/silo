@@ -42,13 +42,18 @@ func pivotRoot(newroot string) (err error) {
 	return os.Remove(putoldInsideRoot)
 }
 
-// setupDev configures a secure, isolated /dev filesystem in RAM (tmpfs)
-// with essential device nodes (null, zero, full, random, urandom, tty), /dev/shm, and POSIX stream links.
-func setupDev() error {
-	Thought("DevFS", "Mounting isolated /dev tmpfs with safe device nodes and /dev/shm...")
+// setupDev configures a secure, isolated /dev filesystem in RAM (tmpfs) inside mergedDir prior to pivot_root,
+// populated with essential character device nodes (null, zero, full, random, urandom, tty), /dev/shm, and POSIX stream links.
+func setupDev(mergedDir string) error {
+	Thought("DevFS", "Mounting isolated /dev tmpfs with safe device nodes and /dev/shm inside rootfs...")
 
-	// 1. Mount isolated tmpfs on /dev with MS_NOSUID
-	if err := syscall.Mount("tmpfs", "/dev", "tmpfs", syscall.MS_NOSUID|syscall.MS_STRICTATIME, "mode=755"); err != nil {
+	devDir := filepath.Join(mergedDir, "dev")
+	if err := os.MkdirAll(devDir, 0755); err != nil {
+		return fmt.Errorf("mkdir container /dev failed: %w", err)
+	}
+
+	// 1. Mount isolated tmpfs on container /dev with MS_NOSUID
+	if err := syscall.Mount("tmpfs", devDir, "tmpfs", syscall.MS_NOSUID|syscall.MS_STRICTATIME, "mode=755"); err != nil {
 		return fmt.Errorf("mount /dev tmpfs failed: %w", err)
 	}
 
@@ -62,7 +67,7 @@ func setupDev() error {
 		"/dev/tty",
 	}
 	for _, dev := range safeDevices {
-		target := filepath.Join("/dev", filepath.Base(dev))
+		target := filepath.Join(devDir, filepath.Base(dev))
 		if f, err := os.OpenFile(target, os.O_CREATE|os.O_RDONLY, 0666); err == nil {
 			f.Close()
 			_ = syscall.Mount(dev, target, "", syscall.MS_BIND|syscall.MS_NOSUID|syscall.MS_NODEV, "")
@@ -70,15 +75,15 @@ func setupDev() error {
 	}
 
 	// 3. Mount /dev/shm (POSIX shared memory)
-	shmDir := "/dev/shm"
+	shmDir := filepath.Join(devDir, "shm")
 	_ = os.MkdirAll(shmDir, 0777)
 	_ = syscall.Mount("tmpfs", shmDir, "tmpfs", syscall.MS_NOSUID|syscall.MS_NODEV, "mode=1777")
 
-	// 4. Create standard POSIX file descriptor symlinks
-	_ = os.Symlink("/proc/self/fd", "/dev/fd")
-	_ = os.Symlink("/proc/self/fd/0", "/dev/stdin")
-	_ = os.Symlink("/proc/self/fd/1", "/dev/stdout")
-	_ = os.Symlink("/proc/self/fd/2", "/dev/stderr")
+	// 4. Create standard POSIX file descriptor symlinks (targets resolve relative to container root)
+	_ = os.Symlink("/proc/self/fd", filepath.Join(devDir, "fd"))
+	_ = os.Symlink("/proc/self/fd/0", filepath.Join(devDir, "stdin"))
+	_ = os.Symlink("/proc/self/fd/1", filepath.Join(devDir, "stdout"))
+	_ = os.Symlink("/proc/self/fd/2", filepath.Join(devDir, "stderr"))
 
 	return nil
 }
@@ -166,6 +171,11 @@ func child() {
 		}
 	}
 
+	// Setup /dev virtual filesystem with safe device nodes & /dev/shm before pivot_root
+	if err := setupDev(mergedDir); err != nil {
+		panic(fmt.Sprintf("setup /dev failed: %v", err))
+	}
+
 	Thought("pivot_root", "Swapping container root to %s and detaching old root.", mergedDir)
 	if err := pivotRoot(mergedDir); err != nil {
 		panic(fmt.Sprintf("PivotRoot failed: %v (Ensure target rootfs exists at %s)", err, mergedDir))
@@ -174,11 +184,6 @@ func child() {
 	Thought("ProcFS", "Mounting fresh /proc virtual filesystem inside isolated PID namespace.")
 	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
 		panic(fmt.Sprintf("mount proc failed: %v", err))
-	}
-
-	// Setup /dev virtual filesystem with safe device nodes & /dev/shm
-	if err := setupDev(); err != nil {
-		panic(fmt.Sprintf("setup /dev failed: %v", err))
 	}
 
 	// Switch to requested working directory if provided

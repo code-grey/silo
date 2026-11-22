@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const Version = "v0.3.2"
+const Version = "v0.3.3"
 
 func usage(exitCode int) {
 	fmt.Printf("Silo Container Runtime %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)

@@ -201,15 +201,15 @@ func run(cfg *RunConfig) int {
 
 	Thought("Namespaces", "Spawning container supervisor with CLONE_NEWUTS | CLONE_NEWPID | CLONE_NEWNS...")
 	if err := cmd.Start(); err != nil {
-		fmt.Printf("Error running the run command - %s\n", err)
+		fmt.Fprintf(os.Stderr, "Error running the run command - %s\n", err)
 		return 1
 	}
-	fmt.Printf("Silo: Container booted successfully (Host PID: %d)\n", cmd.Process.Pid)
+	fmt.Fprintf(os.Stderr, "Silo: Container booted successfully (Host PID: %d)\n", cmd.Process.Pid)
 
 	Thought("Cgroups v2", "Allocating /sys/fs/cgroup/silo-%d and attaching host PID %d...", cmd.Process.Pid, cmd.Process.Pid)
 	cleanupCgroup, err := setupCgroup(cmd.Process.Pid)
 	if err != nil {
-		fmt.Printf("Silo Error: Failed to setup cgroups: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Silo Error: Failed to setup cgroups: %v\n", err)
 		_ = cmd.Process.Kill()
 		return 1
 	}
@@ -232,27 +232,27 @@ func run(cfg *RunConfig) int {
 	select {
 	case cmdErr = <-done:
 		if cmdErr != nil {
-			fmt.Printf("Silo: Container exited with error: %v\n", cmdErr)
+			fmt.Fprintf(os.Stderr, "Silo: Container exited with error: %v\n", cmdErr)
 		} else {
-			fmt.Println("Silo: Container exited cleanly.")
+			fmt.Fprintln(os.Stderr, "Silo: Container exited cleanly.")
 		}
 
 	case sig := <-sigChan:
-		fmt.Printf("\nSilo: Intercepted %v. Proxying SIGTERM to container PID %d...\n", sig, cmd.Process.Pid)
+		fmt.Fprintf(os.Stderr, "\nSilo: Intercepted %v. Proxying SIGTERM to container PID %d...\n", sig, cmd.Process.Pid)
 
 		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
-			fmt.Printf("Silo Error: Failed to signal container: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Silo Error: Failed to signal container: %v\n", err)
 		}
 
 		select {
 		case cmdErr = <-done:
-			fmt.Println("Silo: Container safely terminated.")
+			fmt.Fprintln(os.Stderr, "Silo: Container safely terminated.")
 		case <-time.After(10 * time.Second):
-			fmt.Println("Silo: Timeout reached (10s). Force killing container (SIGKILL)...")
+			fmt.Fprintln(os.Stderr, "Silo: Timeout reached (10s). Force killing container (SIGKILL)...")
 			_ = cmd.Process.Kill()
 			cmdErr = <-done
 		case <-sigChan:
-			fmt.Println("\nSilo: Second signal intercepted. Force killing container (SIGKILL)...")
+			fmt.Fprintln(os.Stderr, "\nSilo: Second signal intercepted. Force killing container (SIGKILL)...")
 			_ = cmd.Process.Kill()
 			cmdErr = <-done
 		}

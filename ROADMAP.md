@@ -21,6 +21,8 @@ This document outlines the development milestones for Silo, tracking our progres
 - [x] **Volume / Bind Mounts (`-v` & `-w`):** Full support for host directory mounts with ergonomic shorthand (`-v`), read-only security (`:ro` remount dance), working directory switching (`-w`), and intentional host write persistence.
 - [x] **Secure Virtual `/dev` Filesystem & Cleanup Guards:** OCI-compliant `/dev` with safe character nodes (`null`, `zero`, `urandom`, `tty`), `/dev/shm` (POSIX shared memory), and mount-boundary unmount protection.
 - [x] **Modular CLI & Storage Management (`images`, `purge`):** Clean zero-dependency command router with image inspection, human-readable size reporting, and granular storage reclamation.
+- [x] **Automated E2E Test Harness & Compiler Optimization:** Built Go-native test suite (`tests/e2e_test.go`) covering all core isolation mechanics and CLI commands, automated with runner (`scripts/test.sh`). Optimized binary via `-ldflags="-s -w"` cutting footprint by 38% (11MB -> 6.9MB).
+- [x] **UNIX Standard Stream Isolation & Pre-Pivot `/dev` Hardening:** Isolated supervisor runtime logging to `os.Stderr` to keep container `stdout` 100% pure for shell pipelines. Pre-mounted `/dev` `tmpfs` and device nodes before `pivot_root`, laying the required foundation for v0.4 rootless execution.
 - [ ] **Self-Hosted Pre-Baked Runtime Tarballs:** Distribute official pre-compressed tarballs (Python, Node.js) via CDN/GitHub Releases for 1-second cold starts, falling back to dynamic `apk` synthesis.
 
 ## v0.4 - Rootless Containers (Planned)

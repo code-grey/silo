@@ -22,10 +22,10 @@ type CrashReport struct {
 	FailureReason    string `json:"failure_reason"`
 	MemoryLimitBytes string `json:"memory_limit_bytes"`
 	PeakMemoryBytes  string `json:"peak_memory_bytes"`
-	OOMKills         string `json:"oom_kills"`
+	OOMKills         int    `json:"oom_kills"`
 	LimitHitMax      string `json:"limit_hit_max,omitempty"`
 	PIDsLimit        string `json:"pids_limit,omitempty"`
-	PIDsMaxHits      string `json:"pids_max_hits,omitempty"`
+	PIDsMaxHits      int    `json:"pids_max_hits,omitempty"`
 }
 
 // ensureSubtreeControllers ensures root cgroup exports memory and pids to children
@@ -132,18 +132,19 @@ func inspectCgroup(pid int) {
 		}
 	}
 
-	oomKills := events["oom_kill"]
-	if oomKills != "" && oomKills != "0" {
+	oomKillsStr := events["oom_kill"]
+	oomKillsCount, _ := strconv.Atoi(oomKillsStr)
+	if oomKillsCount > 0 {
 		maxHits := events["max"]
-		fmt.Println("\n================== SILO CATASTROPHE POST-MORTEM ==================")
-		fmt.Println("CRITICAL: Container was terminated by the Linux OOM Killer!")
-		fmt.Printf("• Failure Cause : Memory ceiling exceeded (%s bytes / ~50 MB)\n", memoryLimitBytes)
-		fmt.Printf("• Peak Memory   : %s bytes\n", peakStr)
-		fmt.Printf("• OOM Kills     : %s\n", oomKills)
+		fmt.Fprintln(os.Stderr, "\n================== SILO CATASTROPHE POST-MORTEM ==================")
+		fmt.Fprintln(os.Stderr, "CRITICAL: Container was terminated by the Linux OOM Killer!")
+		fmt.Fprintf(os.Stderr, "• Failure Cause : Memory ceiling exceeded (%s bytes / ~50 MB)\n", memoryLimitBytes)
+		fmt.Fprintf(os.Stderr, "• Peak Memory   : %s bytes\n", peakStr)
+		fmt.Fprintf(os.Stderr, "• OOM Kills     : %d\n", oomKillsCount)
 		if maxHits != "" {
-			fmt.Printf("• Limit Hit Max : %s times\n", maxHits)
+			fmt.Fprintf(os.Stderr, "• Limit Hit Max : %s times\n", maxHits)
 		}
-		fmt.Println("==================================================================")
+		fmt.Fprintln(os.Stderr, "==================================================================")
 
 		// Save structured JSON for automated pipelines & autograders
 		saveCrashReport(CrashReport{
@@ -152,7 +153,7 @@ func inspectCgroup(pid int) {
 			FailureReason:    "OUT_OF_MEMORY_KILL",
 			MemoryLimitBytes: memoryLimitBytes,
 			PeakMemoryBytes:  peakStr,
-			OOMKills:         oomKills,
+			OOMKills:         oomKillsCount,
 			LimitHitMax:      maxHits,
 		})
 		return
@@ -168,22 +169,24 @@ func inspectCgroup(pid int) {
 				pidsEvents[parts[0]] = parts[1]
 			}
 		}
-		if maxHits, ok := pidsEvents["max"]; ok && maxHits != "0" {
-			fmt.Println("\n================== SILO CATASTROPHE POST-MORTEM ==================")
-			fmt.Println("WARNING: Process creation limit was breached (Fork Bomb Prevention)!")
-			fmt.Printf("• Process Limit : %s max processes\n", pidsLimit)
-			fmt.Printf("• Breached Count: %s times fork() failed\n", maxHits)
-			fmt.Println("==================================================================")
+		pidsHits, _ := strconv.Atoi(pidsEvents["max"])
+		if pidsHits > 0 {
+			fmt.Fprintln(os.Stderr, "\n================== SILO CATASTROPHE POST-MORTEM ==================")
+			fmt.Fprintln(os.Stderr, "WARNING: Process creation limit was breached (Fork Bomb Prevention)!")
+			fmt.Fprintf(os.Stderr, "• Process Limit : %s max processes\n", pidsLimit)
+			fmt.Fprintf(os.Stderr, "• Breached Count: %d times fork() failed\n", pidsHits)
+			fmt.Fprintln(os.Stderr, "==================================================================")
 
 			saveCrashReport(CrashReport{
 				Timestamp:        time.Now().UTC().Format(time.RFC3339),
 				ContainerPID:     pid,
-				FailureReason:    "PID_LIMIT_BREACH",
-				MemoryLimitBytes: memoryLimitBytes,
-				PeakMemoryBytes:  peakStr,
+				FailureReason:    "PID_LIMIT_BREACHED",
 				PIDsLimit:        pidsLimit,
-				PIDsMaxHits:      maxHits,
+				PIDsMaxHits:      pidsHits,
+				PeakMemoryBytes:  peakStr,
+				MemoryLimitBytes: memoryLimitBytes,
 			})
+			return
 		}
 	}
 }
