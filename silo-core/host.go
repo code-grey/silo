@@ -11,13 +11,50 @@ import (
 	"time"
 )
 
-func run() int {
-	baseRootfs := "/tmp/silo-container/rootfs"
-	if _, err := os.Stat(baseRootfs); os.IsNotExist(err) {
-		fmt.Printf("Silo Error: Base rootfs not found at %s. Please run scripts/setup_rootfs.sh first.\n", baseRootfs)
+func run(args []string) int {
+	var explicitImage string
+	var payloadArgs []string
+
+	// Parse flags while allowing standard positional payload arguments
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--image" && i+1 < len(args) {
+			explicitImage = args[i+1]
+			i++
+		} else if strings.HasPrefix(arg, "--image=") {
+			explicitImage = strings.TrimPrefix(arg, "--image=")
+		} else {
+			payloadArgs = args[i:]
+			break
+		}
+	}
+
+	if len(payloadArgs) == 0 {
+		fmt.Println("Silo Error: No command or payload specified to run.")
 		return 1
 	}
 
+	targetPayload := payloadArgs[0]
+
+	// Phase 1: Pre-Flight Runtime Detection
+	inspection := InspectPayload(targetPayload)
+	var targetImage string
+	if explicitImage != "" {
+		targetImage = explicitImage
+		Thought("PreFlight", "Explicit image specified by user: '%s' (payload: %s)", targetImage, inspection.Reason)
+	} else {
+		targetImage = inspection.RecommendedImage
+		Thought("PreFlight", "Payload analysis: %s ➔ Selected image '%s'", inspection.Reason, targetImage)
+	}
+
+	// Phase 2: Ensure Image is cached or pulled/synthesized
+	baseRootfs, err := EnsureImage(targetImage)
+	if err != nil {
+		fmt.Printf("Silo Error: Failed to resolve rootfs for '%s': %v\n", targetImage, err)
+		return 1
+	}
+
+	// Phase 3: Setup Ephemeral OverlayFS Layer
 	Thought("Storage", "Preparing ephemeral OverlayFS workspace on host...")
 	overlay, err := PrepareOverlay(baseRootfs)
 	if err != nil {
@@ -29,13 +66,11 @@ func run() int {
 		_ = overlay.Cleanup()
 	}()
 
-	childArgs := append([]string{}, os.Args[2:]...)
-	targetPayload := childArgs[0]
+	childArgs := append([]string{}, payloadArgs...)
 
-	// Determine if targetPayload is a host file that should be injected into the container
+	// Phase 4: Single-File Payload Injection & Execution Auto-Wrapping
 	if _, err := os.Stat(targetPayload); err == nil {
 		_, inRootfs := os.Stat(filepath.Join(baseRootfs, targetPayload))
-		// Inject if it's a relative path (./app), an explicit local file, or missing from base rootfs
 		if inRootfs != nil || strings.HasPrefix(targetPayload, ".") || !filepath.IsAbs(targetPayload) {
 			injectedPath, err := overlay.InjectPayload(targetPayload)
 			if err != nil {
@@ -43,7 +78,16 @@ func run() int {
 				return 1
 			}
 			Thought("Payload", "Ingested host file '%s' into ephemeral upperdir (%s) — host directory remains 100%% private", targetPayload, injectedPath)
-			childArgs[0] = injectedPath
+
+			if len(inspection.Runner) > 0 {
+				childArgs = append(append([]string{}, inspection.Runner...), injectedPath)
+				if len(payloadArgs) > 1 {
+					childArgs = append(childArgs, payloadArgs[1:]...)
+				}
+				Thought("Runner", "Auto-wrapping execution with interpreter: %s", strings.Join(childArgs, " "))
+			} else {
+				childArgs[0] = injectedPath
+			}
 		}
 	}
 

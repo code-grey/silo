@@ -16,15 +16,17 @@ This document outlines the development milestones for Silo, tracking our progres
 - [x] **OverlayFS Layering:** Implement OverlayFS to separate a read-only base image (`lowerdir`) from an ephemeral container writable layer (`upperdir` + `workdir`).
 - [x] **Single-File Drop-in Runner:** Ingest local scripts or binaries directly into the ephemeral upper layer (`/bin/`) without exposing host directories.
 - [x] **Structured Crash Dump:** Output machine-readable JSON post-mortem reports (`silo-crash-<id>.json`) for automated pipelines and autograders.
-- [ ] **Image Cache & Auto-Pull:** Automatically pull, verify, and locally cache base rootfs images (Alpine, Ubuntu, etc.) with offline-first local cache fallback.
-- [ ] **Smart ELF Binary Inspection (`debug/elf`):** Inspect target binary headers (`PT_INTERP`) using Go's standard library to detect static vs. glibc vs. musl dependencies, automatically picking the matching rootfs and preventing cryptic "file not found" dynamic linker errors.
+- [x] **Image Cache & Auto-Pull:** Automatically pull, verify, and locally cache base rootfs images (Alpine, Ubuntu, etc.) with offline-first local cache fallback.
+- [x] **Smart Pre-Flight Inspection & Auto-Wrapping:** Inspect ELF binary headers (`PT_INTERP`) and sniff shebangs/extensions across mainstream languages (Python, Node, Ruby, Perl, PHP, Java bytecode, Shell), auto-wrapping execution with the matching runtime to eliminate Linux kernel `ENOEXEC` errors.
+- [ ] **Self-Hosted Pre-Baked Runtime Tarballs:** Distribute official pre-compressed tarballs (Python, Node.js) via CDN/GitHub Releases for 1-second cold starts, falling back to dynamic `apk` synthesis.
 - [ ] **Volume / Bind Mounts (`-v`):** Support mounting host directories or project files into the container (e.g. `-v $(pwd):/app`) for seamless script and artifact execution.
 
 ## v0.4 - Rootless Containers (Planned)
 - [ ] **User Namespaces:** Implement User Namespaces (`CLONE_NEWUSER`) along with UID/GID mappings. This will allow users to run `silo` containers without requiring `sudo` privileges on the host.
 
-## v0.5 - Networking (Planned)
+## v0.5 - Networking & Image Tags (Planned)
 - [ ] **Bridge Networking:** Set up bridge networking with `veth` pairs to provide network isolation and grant internet access to the containers.
+- [ ] **Versioned Image Tagging (`<image>:<tag>`):** Allow advanced users to select specific OS versions (e.g. `--image alpine:3.18`, `--image ubuntu:20.04`, `--image python:3.10`) with isolated cache directories and pinned LTS defaults.
 
 ## v0.6 - Evaluation & Autograding Engine ("Silo Judge" Planned)
 - [ ] **Batch Testcase Evaluation:** Automated stdin injection and stdout/stderr capture against expected outputs with detailed diff reporting (AC, WA, TLE, MLE, RTE verdicts).
