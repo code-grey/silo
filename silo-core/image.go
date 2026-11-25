@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -309,32 +310,87 @@ func downloadAndExtractRootfs(spec ImageSpec, targetDir string) error {
 	return nil
 }
 
-// synthesizeLanguageImage clones base Alpine and uses apk inside a chroot to install the language runtime
+// synthesizeLanguageImage clones base Alpine into an atomic staging directory and installs apkPkg
+// inside an unprivileged user/mount namespace so language synthesis works 100% rootless.
 func synthesizeLanguageImage(baseRootfs, targetRootfs, apkPkg string) error {
+	stagingRootfs := targetRootfs + ".tmp"
+	_ = os.RemoveAll(stagingRootfs)
 	_ = os.RemoveAll(targetRootfs)
-	if err := os.MkdirAll(targetRootfs, 0755); err != nil {
+
+	success := false
+	defer func() {
+		if !success {
+			_ = os.RemoveAll(stagingRootfs)
+		}
+	}()
+
+	if err := os.MkdirAll(stagingRootfs, 0755); err != nil {
 		return err
 	}
 
-	// 1. Copy base rootfs (Fast file copy)
-	copyCmd := exec.Command("cp", "-a", baseRootfs+"/.", targetRootfs)
+	// 1. Copy base rootfs (fast file copy)
+	copyCmd := exec.Command("cp", "-a", baseRootfs+"/.", stagingRootfs)
 	if err := copyCmd.Run(); err != nil {
 		return fmt.Errorf("failed to copy base rootfs: %w", err)
 	}
 
 	// 2. Inject host DNS configuration so apk can resolve package repositories
-	resolvDst := filepath.Join(targetRootfs, "etc", "resolv.conf")
-	resolvSrc, err := os.ReadFile("/etc/resolv.conf")
+	resolvDst := filepath.Join(stagingRootfs, "etc", "resolv.conf")
+	resolvSrc, err := os.ReadFile("/run/systemd/resolve/resolv.conf")
+	if err != nil {
+		resolvSrc, err = os.ReadFile("/etc/resolv.conf")
+	}
 	if err == nil {
 		_ = os.WriteFile(resolvDst, resolvSrc, 0644)
 	}
 
-	// 3. Run apk update and apk add inside the target rootfs
-	apkCmd := exec.Command("chroot", targetRootfs, "/sbin/apk", "add", "--no-cache", apkPkg)
-	apkCmd.Env = []string{"PATH=/bin:/sbin:/usr/bin:/usr/sbin"}
+	// 3. Run apk add inside our own rootless CLONE_NEWUSER | CLONE_NEWNS child (__synth)
+	apkCmd := exec.Command("/proc/self/exe", "__synth", stagingRootfs, apkPkg)
+	apkCmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWNS,
+	}
+	if os.Geteuid() != 0 {
+		apkCmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWUSER
+		apkCmd.SysProcAttr.UidMappings = []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
+		}
+		apkCmd.SysProcAttr.GidMappings = []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getgid(), Size: 1},
+		}
+		apkCmd.SysProcAttr.GidMappingsEnableSetgroups = false
+	}
+
 	if out, err := apkCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("apk add %s failed: %v (%s)", apkPkg, err, string(out))
 	}
 
+	if err := os.Rename(stagingRootfs, targetRootfs); err != nil {
+		return fmt.Errorf("failed to finalize synthesized rootfs: %w", err)
+	}
+	success = true
 	return nil
+}
+
+// runSynthChild executes inside CLONE_NEWUSER | CLONE_NEWNS to chroot into stagingRootfs and run apk add.
+func runSynthChild(targetRootfs, apkPkg string) int {
+	_ = syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, "")
+	if err := setupDev(targetRootfs); err != nil {
+		fmt.Fprintf(os.Stderr, "synth setup /dev failed: %v\n", err)
+		return 1
+	}
+	if err := syscall.Chroot(targetRootfs); err != nil {
+		fmt.Fprintf(os.Stderr, "synth chroot failed: %v\n", err)
+		return 1
+	}
+	if err := syscall.Chdir("/"); err != nil {
+		fmt.Fprintf(os.Stderr, "synth chdir failed: %v\n", err)
+		return 1
+	}
+
+	apkArgs := []string{"/sbin/apk", "add", "--no-cache", "--no-chown", apkPkg}
+	if err := syscall.Exec("/sbin/apk", apkArgs, []string{"PATH=/bin:/sbin:/usr/bin:/usr/sbin"}); err != nil {
+		fmt.Fprintf(os.Stderr, "synth exec apk failed: %v\n", err)
+		return 1
+	}
+	return 0
 }

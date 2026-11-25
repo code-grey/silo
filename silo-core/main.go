@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const Version = "v0.4.0"
+const Version = "v0.4.1"
 
 func usage(exitCode int) {
 	fmt.Printf("Silo Container Runtime %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)
@@ -20,6 +20,7 @@ func usage(exitCode int) {
 	fmt.Println("  run [flags] <payload> [args...]   Run a command, binary, or script inside an isolated container")
 	fmt.Println("  images                            List all locally cached and synthesized container images")
 	fmt.Println("  purge [flags]                     Reclaim disk space by cleaning cached images and stale layers")
+	fmt.Println("  wrench [check|fix] [-y]           Diagnose and repair rootless kernel/AppArmor/cgroup prerequisites")
 	fmt.Println("  version                           Print version and runtime architecture information")
 	fmt.Println("  help                              Show this help message")
 	fmt.Println()
@@ -124,6 +125,18 @@ func main() {
 			}
 		}
 		os.Exit(purge(flags))
+
+	case "wrench":
+		os.Exit(runWrench(args))
+
+	case "__probe-userns":
+		os.Exit(0)
+
+	case "__synth":
+		if len(args) != 2 {
+			os.Exit(1)
+		}
+		os.Exit(runSynthChild(args[0], args[1]))
 
 	case "version", "-v", "--version":
 		printVersion()

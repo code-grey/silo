@@ -315,7 +315,7 @@ func TestE2E_CLI_Commands(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("Version failed (code %d): %s", code, stderr)
 		}
-		if !strings.Contains(stdout, "v0.4.0") && !strings.Contains(stdout, "Silo Container Runtime") {
+		if !strings.Contains(stdout, "v0.4.1") && !strings.Contains(stdout, "Silo Container Runtime") {
 			t.Errorf("Unexpected version output: %s", stdout)
 		}
 	})
@@ -327,6 +327,18 @@ func TestE2E_CLI_Commands(t *testing.T) {
 		}
 		if !strings.Contains(stdout, "IMAGE") || !strings.Contains(stdout, "STATUS") {
 			t.Errorf("Expected images table headers, got: %s", stdout)
+		}
+	})
+
+	t.Run("Wrench_Check_Command", func(t *testing.T) {
+		stdout, stderr, code := runSilo(t, "", "wrench", "check")
+		if code != 0 {
+			t.Fatalf("Wrench check failed (code %d).\nStdout: %s\nStderr: %s", code, stdout, stderr)
+		}
+		for _, expected := range []string{"Kernel / OverlayFS", "UserNS Probe", "Cgroups v2", "Storage Ownership"} {
+			if !strings.Contains(stdout, expected) {
+				t.Errorf("Expected wrench output to contain %q, got:\n%s", expected, stdout)
+			}
 		}
 	})
 }
